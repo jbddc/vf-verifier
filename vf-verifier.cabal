@@ -1,7 +1,5 @@
 name:                vf-verifier
 version:             0.1.0.0
--- synopsis:
--- description:
 homepage:            https://github.com/githubuser/vf-verifier#readme
 license:             BSD3
 license-file:        LICENSE
@@ -18,3 +16,4 @@ executable vf-verifier
   main-is:             Main.hs
   default-language:    Haskell2010
   build-depends:       base >= 4.7 && < 5
+                     , parsec
