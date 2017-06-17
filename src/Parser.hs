@@ -65,10 +65,10 @@ parseDeclaration = do
 
 parseInstruction :: Parser Instruction
 parseInstruction = 
-        parseAtribution 
+        parseCycle
+    <|> parseAtribution 
     <|> parseCondicionalOne 
     <|> parseCondicionalTwo 
-    <|> parseCycle
 
 parseAtribution :: Parser Instruction
 parseAtribution = do
@@ -117,19 +117,19 @@ parseCycle = do
 
 parseRelationalExpression :: Parser RelationalExpression
 parseRelationalExpression = 
-        f <$> parseExpression <*> parseRelationalOperator <*> parseExpression
-    <|> g <$> parseExpression
+        g <$> parseExpression
+    <|> f <$> parseExpression <*> parseRelationalOperator <*> parseExpression
     where
         f e1 ro e2 = Parser.RE e1 ro e2
         g e        = Parser.E0 e
 
 parseRelationalOperator :: Parser RelationalOperator
 parseRelationalOperator = 
-        f <$> char '=' <*> char '='
-    <|> g <$> char '!' <*> char '='
+        r <$> char '>'
     <|> j <$> char '<'
+    <|> f <$> char '=' <*> char '='
+    <|> g <$> char '!' <*> char '='
     <|> h <$> char '<' <*> char '='
-    <|> r <$> char '>'
     <|> s <$> char '>' <*> char '='
     where 
         f _ _ = Parser.EQ
@@ -141,8 +141,8 @@ parseRelationalOperator =
 
 parseExpression :: Parser Expression
 parseExpression = 
-        f <$> parseTerm <*> parseExpressionOperator <*> parseExpression
-    <|> g <$> parseTerm
+        g <$> parseTerm
+    <|> f <$> parseTerm <*> parseExpressionOperator <*> parseExpression
     where
         f t eo e = Parser.E t eo e
         g t      = Parser.T0 t
@@ -159,8 +159,8 @@ parseExpressionOperator =
 
 parseTerm :: Parser Term
 parseTerm = 
-        g <$> parseFactor <*> parseTermOperator <*> parseTerm
-    <|> h <$> parseFactor
+         h <$> parseFactor
+    <|>  g <$> parseFactor <*> parseTermOperator <*> parseTerm
     where
         g f to t = Parser.T f to t
         h f      = Parser.F f
@@ -179,11 +179,11 @@ parseTermOperator =
 
 parseFactor :: Parser Factor
 parseFactor = 
-        f <$> char '(' <*> parseRelationalExpression <*> char ')'
-    <|> g <$> char '!' <*> parseRelationalExpression
-    <|> j <$> many1 digit
+        j <$> many1 digit
     <|> h <$> char '-' <*> many1 digit
     <|> w <$> many1 alphaNum
+    <|> f <$> char '(' <*> parseRelationalExpression <*> char ')'
+    <|> g <$> char '!' <*> parseRelationalExpression
     where
         f _ re _ = Parser.P re
         g _ re   = Parser.NOT re
