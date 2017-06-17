@@ -4,7 +4,10 @@ import Text.Parsec.Token
 import Text.Parsec.Language
 import Text.Parsec.Expr
 
-data SL = Code [Expression]
+data SL = WithPre Condition [Expression] 
+        | WithPost [Expression] Condition
+        | WithBoth Condition [Expression] Condition
+        | Without [Expression]
     deriving (Show)
 
 data Expression = Constant Double
@@ -136,7 +139,7 @@ parseSL = do
   s <- many parseDeclaration
   q <- many parseCommand
   eof
-  return (Code (s++q))
+  return (Without (s++q))
 
 main :: IO ()
 main = getContents >>= parseTest parseSL
