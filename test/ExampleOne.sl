@@ -1,1 +1,10 @@
-intx=4;inty=2;intr=0;intq=0;r=x;q=0;while(1){r=1;q=1;}
+int x=4;
+int y=2;
+int r=0;
+int q=0;
+r=x;
+q=0;
+while (x != 1) {
+    r=1;
+    q=1;
+}

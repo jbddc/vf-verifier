@@ -1,196 +1,142 @@
-module Parser where
-
 import Text.Parsec
-import Text.ParserCombinators.Parsec
-import System.Environment
+import Text.Parsec.String
+import Text.Parsec.Token
+import Text.Parsec.Language
+import Text.Parsec.Expr
 
-data SimpleLanguage = SL [Declaration] [Instruction]
-    deriving (Show)
-    
-data Declaration = D String Integer
-    deriving (Show)
-    
-data Instruction = 
-      A String Expression
-    | C1 RelationalExpression [Instruction]
-    | C2 RelationalExpression [Instruction] [Instruction]
-    | C RelationalExpression [Instruction]
+data SL = Code [Expression]
     deriving (Show)
 
-data RelationalExpression = 
-      RE Expression RelationalOperator Expression
-    | E0 Expression
-    deriving (Show)
+data Expression = Constant Double
+                | Identifier String
+                | Addition Expression Expression
+                | Subtraction Expression Expression
+                | Multiplication Expression Expression
+                | Division Expression Expression
+                | Modulus Expression Expression
+                | Negation Expression
+                | Cycle Condition [Expression]
+                | Conditional Condition [Expression] [Expression]
+                | AssignmentStatement String Expression
+                | DeclarationStatement String Expression
+                deriving (Show)
 
-data RelationalOperator = EQ | NE | LT | LE | GT | GE
-    deriving (Show)
+data Condition = And Condition Condition
+               | Or Condition Condition
+               | Not Condition
+               | Equal Expression Expression
+               | LessThan Expression Expression
+               | LessThanEqual Expression Expression
+               deriving (Show)
 
-data Expression = 
-      E Term ExpressionOperator Expression
-    | T0 Term
-    deriving (Show)
+lexer :: TokenParser ()
+lexer = makeTokenParser (javaStyle { opStart  = oneOf "+-*/%|&=!<>¬"
+                                   , opLetter = oneOf "+-*/%|&=!<>¬" 
+                                   , reservedNames = [ "int","while","if", "then", "else"]})
 
-data ExpressionOperator = ADD | SUB | OR
-    deriving (Show)
-
-data Term = 
-      T Factor TermOperator Term 
-    | F Factor
-    deriving (Show)
-
-data TermOperator = MUL | DIV | MOD | AND
-    deriving (Show)
-
-data Factor = 
-      P RelationalExpression 
-    | NOT RelationalExpression 
-    | CONST Integer
-    | VAR String
-    deriving (Show)
-
-parseSL :: Parser SimpleLanguage
-parseSL = do
-    declarations <- many parseDeclaration
-    instructions <- many parseInstruction
-    return $ Parser.SL declarations instructions
-
-parseDeclaration :: Parser Declaration
-parseDeclaration = do
-    string "int"
-    name <- many1 alphaNum
-    char '='
-    number <- read <$> many1 digit
-    char ';'
-    return $ Parser.D name number
-
-parseInstruction :: Parser Instruction
-parseInstruction = 
-        parseCycle
-    <|> parseAtribution 
-    <|> parseCondicionalOne 
-    <|> parseCondicionalTwo 
-
-parseAtribution :: Parser Instruction
-parseAtribution = do
-    name <- many1 alphaNum
-    char '='
-    expression <- parseExpression
-    char ';'
-    return $ Parser.A name expression
-
-parseCondicionalOne :: Parser Instruction
-parseCondicionalOne = do
-    string "if"
-    char '('
-    relationalExpression <- parseRelationalExpression
-    char ')'
-    char '{'
-    instructions <- many1 parseInstruction
-    char '}'
-    return $ Parser.C1 relationalExpression instructions
-
-parseCondicionalTwo :: Parser Instruction
-parseCondicionalTwo = do
-    string "if"
-    char '('
-    relationalExpression <- parseRelationalExpression
-    char ')'
-    char '{'
-    instructionsOne <- many1 parseInstruction
-    char '}'
-    string "then"
-    char '{'
-    instructionsTwo <- many1 parseInstruction
-    char '}'
-    return $ Parser.C2 relationalExpression instructionsOne instructionsTwo
-
-parseCycle :: Parser Instruction
-parseCycle = do
-    string "while"
-    char '('
-    relationalExpression <- parseRelationalExpression
-    char ')'
-    char '{'
-    instructions <- many1 parseInstruction
-    char '}'
-    return $ Parser.C relationalExpression instructions
-
-parseRelationalExpression :: Parser RelationalExpression
-parseRelationalExpression = 
-        g <$> parseExpression
-    <|> f <$> parseExpression <*> parseRelationalOperator <*> parseExpression
-    where
-        f e1 ro e2 = Parser.RE e1 ro e2
-        g e        = Parser.E0 e
-
-parseRelationalOperator :: Parser RelationalOperator
-parseRelationalOperator = 
-        r <$> char '>'
-    <|> j <$> char '<'
-    <|> f <$> char '=' <*> char '='
-    <|> g <$> char '!' <*> char '='
-    <|> h <$> char '<' <*> char '='
-    <|> s <$> char '>' <*> char '='
-    where 
-        f _ _ = Parser.EQ
-        g _ _ = Parser.NE
-        j _   = Parser.LT
-        h _ _ = Parser.LE
-        r _   = Parser.GT
-        s _ _ = Parser.GE
+parseNumber :: Parser Expression
+parseNumber = do
+  val <- naturalOrFloat lexer
+  case val of
+    Left i -> return $ Constant $ fromIntegral i
+    Right n -> return $ Constant $ n
 
 parseExpression :: Parser Expression
-parseExpression = 
-        g <$> parseTerm
-    <|> f <$> parseTerm <*> parseExpressionOperator <*> parseExpression
-    where
-        f t eo e = Parser.E t eo e
-        g t      = Parser.T0 t
+parseExpression = (flip buildExpressionParser) parseTerm $ [
+    [ Prefix (reservedOp lexer "-" >> return Negation) 
+    , Prefix (reservedOp lexer "+" >> return id) ]
+  , [ Infix  (reservedOp lexer "*" >> return Multiplication) AssocLeft
+    , Infix  (reservedOp lexer "/" >> return Division) AssocLeft 
+    , Infix  (reservedOp lexer "%" >> return Modulus) AssocLeft ]
+  , [ Infix  (reservedOp lexer "+" >> return Addition) AssocLeft
+    , Infix  (reservedOp lexer "-" >> return Subtraction) AssocLeft ]
+  ]
 
-parseExpressionOperator :: Parser ExpressionOperator
-parseExpressionOperator =
-        f <$> char '+'
-    <|> g <$> char '-'
-    <|> j <$> char '|' <*> char '|'
-    where 
-        f _   = Parser.ADD
-        g _   = Parser.SUB
-        j _ _ = Parser.OR
+parseCycle :: Parser Expression
+parseCycle = do
+    reserved lexer "while"
+    c <- parseCondition
+    e <- braces lexer (many parseCommand)
+    return $ Cycle c e
 
-parseTerm :: Parser Term
-parseTerm = 
-         h <$> parseFactor
-    <|>  g <$> parseFactor <*> parseTermOperator <*> parseTerm
-    where
-        g f to t = Parser.T f to t
-        h f      = Parser.F f
+parseConditional :: Parser Expression
+parseConditional = (try parseConditionalTwo) <|> parseConditionalOne
 
-parseTermOperator :: Parser TermOperator
-parseTermOperator = 
-        f <$> char '*'
-    <|> g <$> char '/'
-    <|> h <$> char '%'
-    <|> j <$> char '&' <*> char '&'
-    where 
-        f _   = Parser.MUL
-        g _   = Parser.DIV
-        h _   = Parser.MOD
-        j _ _ = Parser.AND
+parseConditionalOne :: Parser Expression
+parseConditionalOne = do
+  reserved lexer "if"
+  c <- parens lexer parseCondition
+  reserved lexer "then"
+  e1 <- braces lexer $ many parseCommand
+  return $ Conditional c e1 []
 
-parseFactor :: Parser Factor
-parseFactor = 
-        j <$> many1 digit
-    <|> h <$> char '-' <*> many1 digit
-    <|> w <$> many1 alphaNum
-    <|> f <$> char '(' <*> parseRelationalExpression <*> char ')'
-    <|> g <$> char '!' <*> parseRelationalExpression
-    where
-        f _ re _ = Parser.P re
-        g _ re   = Parser.NOT re
-        j ds     = Parser.CONST . read $ ds
-        h s ds   = Parser.CONST . read $ (s : ds)
-        w v      = Parser.VAR v
+parseConditionalTwo :: Parser Expression
+parseConditionalTwo = do
+  reserved lexer "if"
+  c <- parens lexer parseCondition
+  reserved lexer "then"
+  e1 <- braces lexer $ many parseCommand
+  reserved lexer "else"
+  e2 <- braces lexer $ many parseCommand
+  return $ Conditional c e1 e2
+
+parseCondition :: Parser Condition
+parseCondition = (flip buildExpressionParser) parseConditionalTerm $ [
+    [ Prefix (reservedOp lexer "¬" >> return Not) ]
+  , [ Infix  (reservedOp lexer "&&" >> return And) AssocLeft
+    , Infix  (reservedOp lexer "||" >> return Or) AssocLeft ]
+  ]
+
+parseConditionalTerm :: Parser Condition
+parseConditionalTerm =
+  parens lexer parseCondition
+  <|> parseComparison
+
+parseComparison :: Parser Condition
+parseComparison = do
+  e1 <- parseExpression
+  f <- (reserved lexer "==" >> return (Equal e1))
+       <|> (reserved lexer "<=" >> return (LessThanEqual e1))
+       <|> (reserved lexer "<" >> return (LessThan e1))
+       <|> (reserved lexer ">=" >> return (Not . (LessThan e1)))
+       <|> (reserved lexer ">" >> return (Not . (LessThanEqual e1)))
+       <|> (reserved lexer "!=" >> return (Not . (Equal e1)))
+  e2 <- parseExpression
+  return $ f e2
+
+parseTerm :: Parser Expression
+parseTerm =
+  parens lexer parseExpression 
+  <|> parseNumber
+  <|> (identifier lexer >>= return . Identifier)
+
+parseDeclaration :: Parser Expression
+parseDeclaration = do
+  reserved lexer "int"
+  ident <- identifier lexer
+  reservedOp lexer "="
+  expr <- parseExpression
+  semi lexer
+  return $ DeclarationStatement ident expr
+
+parseAssignment :: Parser Expression
+parseAssignment = do
+  ident <- identifier lexer
+  reservedOp lexer "="
+  expr <- parseExpression
+  semi lexer
+  return $ AssignmentStatement ident expr
+
+parseCommand :: Parser Expression
+parseCommand = parseAssignment <|> parseConditional <|> parseCycle
+
+parseSL :: Parser SL
+parseSL = do
+  whiteSpace lexer  
+  s <- many parseDeclaration
+  q <- many parseCommand
+  eof
+  return (Code (s++q))
 
 main :: IO ()
 main = getContents >>= parseTest parseSL
-
