@@ -1,3 +1,5 @@
+module SLParser where
+
 import Text.Parsec
 import Text.Parsec.String
 import Text.Parsec.Token
@@ -10,7 +12,7 @@ data SL = WithPre  [Expression] Condition
         | Without  [Expression]
     deriving (Show)
 
-data Expression = Constant Double
+data Expression = Constant Integer
                 | Identifier String
                 | Addition Expression Expression
                 | Subtraction Expression Expression
@@ -40,10 +42,8 @@ lexer = makeTokenParser (javaStyle { opStart  = oneOf "+-*/%|&=!<>¬"
 
 parseNumber :: Parser Expression
 parseNumber = do
-  val <- naturalOrFloat lexer
-  case val of
-    Left i -> return $ Constant $ fromIntegral i
-    Right n -> return $ Constant $ n
+  val <- integer lexer
+  return $ Constant val
 
 parseExpression :: Parser Expression
 parseExpression = (flip buildExpressionParser) parseTerm $ [
@@ -63,7 +63,7 @@ parseCycle = do
     braces lexer $ parseInnerCycle c
 
 parseInnerCycle :: Condition -> Parser Expression
-parseInnerCycle c = f <$> (try parseCondition) <*> many parseCommand
+parseInnerCycle c = f <$> (brackets lexer $ try parseCondition) <*> many parseCommand
                 <|> g <$> many parseCommand
   where f a b = CycleInv c a b
         g a   = Cycle c a
@@ -162,6 +162,3 @@ parseSL = do
     (Nothing,Just y)  -> WithPost (s++q) y
     (Just x,Nothing)  -> WithPre (s++q) x
     (Just x,Just y)   -> WithBoth (s++q) x y
-
-main :: IO ()
-main = getContents >>= parseTest parseSL
