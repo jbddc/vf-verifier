@@ -19,6 +19,7 @@ data Expression = Constant Double
                 | Modulus Expression Expression
                 | Negation Expression
                 | Cycle Condition [Expression]
+                | CycleInv Condition Condition [Expression]
                 | Conditional Condition [Expression] [Expression]
                 | AssignmentStatement String Expression
                 | DeclarationStatement String Expression
@@ -59,8 +60,13 @@ parseCycle :: Parser Expression
 parseCycle = do
     reserved lexer "while"
     c <- parseCondition
-    e <- braces lexer (many parseCommand)
-    return $ Cycle c e
+    braces lexer $ parseInnerCycle c
+
+parseInnerCycle :: Condition -> Parser Expression
+parseInnerCycle c = f <$> (try parseCondition) <*> many parseCommand
+                <|> g <$> many parseCommand
+  where f a b = CycleInv c a b
+        g a   = Cycle c a
 
 parseConditional :: Parser Expression
 parseConditional = (try parseConditionalTwo) <|> parseConditionalOne
