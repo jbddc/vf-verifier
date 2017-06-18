@@ -4,10 +4,10 @@ import Text.Parsec.Token
 import Text.Parsec.Language
 import Text.Parsec.Expr
 
-data SL = WithPre Condition [Expression] 
+data SL = WithPre  [Expression] Condition
         | WithPost [Expression] Condition
-        | WithBoth Condition [Expression] Condition
-        | Without [Expression]
+        | WithBoth [Expression] Condition Condition
+        | Without  [Expression]
     deriving (Show)
 
 data Expression = Constant Double
@@ -136,22 +136,26 @@ parseCommand = parseAssignment <|> parseConditional <|> parseCycle
 parsePreCondition :: Parser Condition
 parsePreCondition = do
     reserved lexer "pre"
-    return $ parseCondition
+    parseCondition
 
 parsePosCondition :: Parser Condition
 parsePosCondition = do
     reserved lexer "postn"
-    return $ parseCondition
+    parseCondition
 
 parseSL :: Parser SL
 parseSL = do
   whiteSpace lexer
-  p  <- many parsePreCondition
+  p  <- optionMaybe parsePreCondition
   s  <- many parseDeclaration
   q  <- many parseCommand
-  p' <- many parsePosCondition
+  p' <- optionMaybe parsePosCondition
   eof
-  return (Without (s++q))
+  return $ case (p,p') of
+    (Nothing,Nothing) -> Without (s++q)
+    (Nothing,Just y)  -> WithPost (s++q) y
+    (Just x,Nothing)  -> WithPre (s++q) x
+    (Just x,Just y)   -> WithBoth (s++q) x y
 
 main :: IO ()
 main = getContents >>= parseTest parseSL
