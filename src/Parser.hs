@@ -35,7 +35,7 @@ data Condition = And Condition Condition
 lexer :: TokenParser ()
 lexer = makeTokenParser (javaStyle { opStart  = oneOf "+-*/%|&=!<>¬"
                                    , opLetter = oneOf "+-*/%|&=!<>¬" 
-                                   , reservedNames = [ "int","while","if", "then", "else"]})
+                                   , reservedNames = [ "int", "while", "if", "then", "else", "pre", "postn", "poste" ]})
 
 parseNumber :: Parser Expression
 parseNumber = do
@@ -133,11 +133,23 @@ parseAssignment = do
 parseCommand :: Parser Expression
 parseCommand = parseAssignment <|> parseConditional <|> parseCycle
 
+parsePreCondition :: Parser Condition
+parsePreCondition = do
+    reserved lexer "pre"
+    return $ parseCondition
+
+parsePosCondition :: Parser Condition
+parsePosCondition = do
+    reserved lexer "postn"
+    return $ parseCondition
+
 parseSL :: Parser SL
 parseSL = do
-  whiteSpace lexer  
-  s <- many parseDeclaration
-  q <- many parseCommand
+  whiteSpace lexer
+  p  <- many parsePreCondition
+  s  <- many parseDeclaration
+  q  <- many parseCommand
+  p' <- many parsePosCondition
   eof
   return (Without (s++q))
 
