@@ -2,10 +2,6 @@ flags: {}
 extra-package-dbs: []
 packages:
 - '.'
-- location:
-    git: https://github.com/izgzhen/z3-encoding
-    commit: e7538f6e38e716dae1dc178b1d9fc218d96a9625
-  extra-dep: true
 extra-deps:
 - z3-4.1.0
 resolver: lts-7.12
