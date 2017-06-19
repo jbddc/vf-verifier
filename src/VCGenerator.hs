@@ -128,6 +128,9 @@ replaceExp idents s expr (Division e1 e2) = Division (replaceExp idents s expr e
 replaceExp idents s expr (Modulus e1 e2) = Modulus (replaceExp idents s expr e1) (replaceExp idents s expr e2)
 replaceExp idents s expr (Negation e) = Negation (replaceExp idents s expr e) 
 replaceExp idents s expr (AssignmentStatement ss ex) = if ss==s then AssignmentStatement ss expr else AssignmentStatement ss ex
+replaceExp idents s expr (Cycle c ex) = Cycle (replaceQ idents s expr c) (replaceExp idents s expr ex)
+replaceExp idents s expr (CycleInv c1 c2 ex) = CycleInv (replaceQ idents s expr c1) (replaceQ idents s expr c2) (replaceExp idents s expr ex)
+replaceExp idents s expr (Conditional c ex1 ex2) = Conditional (replaceQ idents expr c) (replaceExp idents s expr ex1) (replaceExp idents s expr ex2)
 
 condition2VC :: MonadZ3 z3 => Identifiers -> Condition -> z3 AST
 condition2VC idents (And c1 c2) = do
