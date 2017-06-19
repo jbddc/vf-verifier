@@ -11,7 +11,7 @@ main = do
     let res = parse parseSL "" input
     either
       print
-      (\x -> do
+      (\x -> putStrLn "AST:" >> print x >> putStrLn "" >> do
         (w,res) <- evalZ3 (script x)
         mapM_ (\(num,(a,b)) -> putStrLn ("VC "++(show num)++": ") >> putStrLn b >> putStr "Result: " >> print a >> putStrLn "") $ zip [1..] $ zip res w
       )

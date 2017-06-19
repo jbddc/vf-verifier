@@ -10,9 +10,9 @@ import Control.Monad.STM (atomically)
 type Identifiers = TVar (Map.Map String AST)
 
 vcGen :: MonadZ3 z3 => SL -> z3 ([AST],[AST])
-vcGen (WithBoth l prec posc) = do
+vcGen (WithBoth l prec posc pose) = do
     (iMap,attribs,sl') <- genericGen l
-    res <- vcGen' iMap (WithBoth sl' prec posc)
+    res <- vcGen' iMap (WithBoth sl' prec posc pose)
     decls <- liftIO $ readTVarIO iMap
     return ((Map.elems decls),attribs++res)
 vcGen (WithPre l prec) = do
@@ -20,9 +20,9 @@ vcGen (WithPre l prec) = do
     res <- vcGen' iMap (WithPre sl' prec)
     decls <- liftIO $ readTVarIO iMap
     return ((Map.elems decls),attribs++res)
-vcGen (WithPost l posc) = do
+vcGen (WithPost l posc pose) = do
     (iMap,attribs,sl') <- genericGen l
-    res <- vcGen' iMap (WithPost sl' posc)
+    res <- vcGen' iMap (WithPost sl' posc pose)
     decls <- liftIO $ readTVarIO iMap
     return ((Map.elems decls),attribs++res)
 vcGen (Without l) = do
@@ -47,7 +47,7 @@ genericGen sl = do
       foldAux x (s,d) = (x:s,d)
 
 vcGen' :: MonadZ3 z3 => Identifiers -> SL -> z3 [AST]
-vcGen' idents (WithBoth l prec posc) = do
+vcGen' idents (WithBoth l prec posc _) = do
     x <- condition2VC idents prec
     y <- wp idents l posc
     ys <- vcAux idents l posc
@@ -55,17 +55,17 @@ vcGen' idents (WithBoth l prec posc) = do
     return (res:ys)
 vcGen' idents (Without l) = do
     x <- mkTrue
-    y <- wp idents l (Equal (Constant 0) (Constant 0))
-    ys <- vcAux idents l (Equal (Constant 0) (Constant 0))
+    y <- wp idents l (Boolean True)
+    ys <- vcAux idents l (Boolean True)
     res <- mkImplies x y
     return (res:ys) 
 vcGen' idents (WithPre l prec) = do
     x <- condition2VC idents prec
-    y <- wp idents l (Equal (Constant 0) (Constant 0))
-    ys <- vcAux idents l (Equal (Constant 0) (Constant 0))
+    y <- wp idents l (Boolean True)
+    ys <- vcAux idents l (Boolean True)
     res <- mkImplies x y
     return (res:ys) 
-vcGen' idents (WithPost l posc) = do 
+vcGen' idents (WithPost l posc _) = do 
     x <- mkTrue
     y <- wp idents l posc
     ys <- vcAux idents l posc
@@ -83,13 +83,13 @@ vcAux idents ((Cycle b cc):[]) c = do
     inv <- mkTrue
     b' <- condition2VC idents b
     vc1esq <- mkAnd [inv,b']
-    vc1dir <- wp idents cc (Equal (Constant 0) (Constant 0))
+    vc1dir <- wp idents cc  (Boolean True)
     vc1 <- mkImplies vc1esq vc1dir 
     b'' <- condition2VC idents (Not b)
     vc2esq <- mkAnd [inv,b'']
     vc2dir <- condition2VC idents c 
     vc2 <- mkImplies vc2esq vc2dir
-    y <- vcAux idents cc (Equal (Constant 0) (Constant 0))
+    y <- vcAux idents cc (Boolean True)
     return ([vc1,vc2]++y) 
 vcAux idents ((CycleInv b inv cc):[]) c = do
     inv' <- condition2VC idents inv
@@ -115,7 +115,7 @@ wpcond :: Identifiers -> [Expression] -> Condition -> Condition
 wpcond idents [] c = c
 wpcond idents ((AssignmentStatement s expr):[]) c = replaceQ idents s expr c
 wpcond idents ((Conditional b ct cf):[]) q = And (Or (Not b) (wpcond idents ct q)) (Or (Not (Not b)) (wpcond idents cf q))
-wpcond idents ((Cycle b c):[]) q = Equal (Constant 0) (Constant 0)
+wpcond idents ((Cycle b c):[]) q = Boolean True 
 wpcond idents ((CycleInv b i c):[]) q = i
 wpcond idents (l:ls) q = wpcond idents [l] (wpcond idents ls q)
 
@@ -126,6 +126,7 @@ replaceQ idents s expr (Not c)     = Not (replaceQ idents s expr c)
 replaceQ idents s expr (Equal exp1 exp2) = Equal (replaceExp idents s expr exp1) (replaceExp idents s expr exp2)
 replaceQ idents s expr (LessThan exp1 exp2) = LessThan (replaceExp idents s expr exp1) (replaceExp idents s expr exp2)
 replaceQ idents s expr (LessThanEqual exp1 exp2) = LessThanEqual (replaceExp idents s expr exp1) (replaceExp idents s expr exp2)
+replaceQ idents s expr (Boolean b) = Boolean b
 
 replaceExp :: Identifiers -> String -> Expression -> Expression -> Expression
 replaceExp idents s expr (Constant i) = Constant i
@@ -165,6 +166,8 @@ condition2VC idents (LessThanEqual c1 c2) = do
     x <- expression2VC idents c1
     y <- expression2VC idents c2
     mkLe x y
+condition2VC idents (Boolean True) = mkTrue
+condition2VC idents (Boolean False) = mkFalse
 
 expression2VC :: MonadZ3 z3 => Identifiers -> Expression -> z3 AST
 expression2VC idents (Constant i) = mkInteger i

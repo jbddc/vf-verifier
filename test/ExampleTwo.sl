@@ -1,6 +1,6 @@
 pre x > 100
 
-int x = 500;
+int x = 101;
 
 while (x < 1000)
 {
@@ -10,3 +10,4 @@ while (x < 1000)
 }
 
 postn x == 1000
+poste false

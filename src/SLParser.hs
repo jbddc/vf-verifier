@@ -7,8 +7,8 @@ import Text.Parsec.Language
 import Text.Parsec.Expr
 
 data SL = WithPre  [Expression] Condition
-        | WithPost [Expression] Condition
-        | WithBoth [Expression] Condition Condition
+        | WithPost [Expression] Condition (Maybe Condition)
+        | WithBoth [Expression] Condition Condition (Maybe Condition)
         | Without  [Expression]
     deriving (Show)
 
@@ -25,6 +25,8 @@ data Expression = Constant Integer
                 | Conditional Condition [Expression] [Expression]
                 | AssignmentStatement String Expression
                 | DeclarationStatement String Expression
+                | Try [Expression] [Expression]
+                | Throw
                 deriving (Show)
 
 data Condition = And Condition Condition
@@ -33,12 +35,13 @@ data Condition = And Condition Condition
                | Equal Expression Expression
                | LessThan Expression Expression
                | LessThanEqual Expression Expression
+               | Boolean Bool
                deriving (Show)
 
 lexer :: TokenParser ()
 lexer = makeTokenParser (javaStyle { opStart  = oneOf "+-*/%|&=!<>¬"
                                    , opLetter = oneOf "+-*/%|&=!<>¬" 
-                                   , reservedNames = [ "int", "while", "if", "then", "else", "pre", "postn", "poste" ]})
+                                   , reservedNames = [ "int", "while", "if", "then", "else", "try", "catch", "throw", "pre", "postn", "poste" ]})
 
 parseNumber :: Parser Expression
 parseNumber = do
@@ -96,9 +99,16 @@ parseCondition = (flip buildExpressionParser) parseConditionalTerm $ [
     , Infix  (reservedOp lexer "||" >> return Or) AssocLeft ]
   ]
 
+parseBool :: Parser Condition
+parseBool = f <$> reserved lexer "true"
+  <|> g <$> reserved lexer "false"
+  where f _ = Boolean True 
+        g _ = Boolean False
+
 parseConditionalTerm :: Parser Condition
 parseConditionalTerm =
   parens lexer parseCondition
+  <|> parseBool
   <|> parseComparison
 
 parseComparison :: Parser Condition
@@ -137,17 +147,36 @@ parseAssignment = do
   return $ AssignmentStatement ident expr
 
 parseCommand :: Parser Expression
-parseCommand = parseAssignment <|> parseConditional <|> parseCycle
+parseCommand = parseThrow <|> parseAssignment <|> parseConditional <|> parseCycle
+
+parseThrow :: Parser Expression
+parseThrow = try $ do
+  reserved lexer "throw"
+  semi lexer
+  return $ Throw
 
 parsePreCondition :: Parser Condition
 parsePreCondition = do
     reserved lexer "pre"
     parseCondition
 
-parsePosCondition :: Parser Condition
-parsePosCondition = do
+parsePosNCondition :: Parser Condition
+parsePosNCondition = do
     reserved lexer "postn"
     parseCondition
+
+parsePosECondition :: Parser Condition
+parsePosECondition = do
+    reserved lexer "poste"
+    parseCondition
+
+parseTryCatch :: Parser Expression
+parseTryCatch = do
+  reserved lexer "try"
+  tryCmds <- braces lexer $ many parseCommand
+  reserved lexer "catch"
+  catchCmds <- braces lexer $ many parseCommand
+  return $ Try tryCmds catchCmds
 
 parseSL :: Parser SL
 parseSL = do
@@ -155,10 +184,11 @@ parseSL = do
   p  <- optionMaybe parsePreCondition
   s  <- many parseDeclaration
   q  <- many parseCommand
-  p' <- optionMaybe parsePosCondition
+  p' <- optionMaybe parsePosNCondition
+  pe <- optionMaybe parsePosECondition
   eof
   return $ case (p,p') of
     (Nothing,Nothing) -> Without (s++q)
-    (Nothing,Just y)  -> WithPost (s++q) y
+    (Nothing,Just y)  -> WithPost (s++q) y pe
     (Just x,Nothing)  -> WithPre (s++q) x
-    (Just x,Just y)   -> WithBoth (s++q) x y
+    (Just x,Just y)   -> WithBoth (s++q) x y pe
