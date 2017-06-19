@@ -1,82 +1,114 @@
-module VCGenerator where
+module VCGenerator (vcGen) where
 
 import SLParser
 import Z3.Monad
+import qualified Data.Map.Strict as Map
+import Control.Concurrent.STM.TVar
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.STM (atomically)
 
-type Identifiers = Map String AST
+type Identifiers = TVar (Map.Map String AST)
 
-vcGen :: MonadZ3 z3 => Identifiers -> SL -> z3 [AST]
+vcGen :: MonadZ3 z3 => SL -> z3 [AST]
 vcGen (WithBoth l prec posc) = do
+    (iMap,sl') <- genericGen l
+    vcGen' iMap (WithBoth sl' prec posc)
+vcGen (WithPre l prec) = do
+    (iMap,sl') <- genericGen l
+    vcGen' iMap (WithPre sl' prec)
+vcGen (WithPost l posc) = do
+    (iMap,sl') <- genericGen l
+    vcGen' iMap (WithPost sl' posc)
+vcGen (Without l) = do
+    (iMap,sl') <- genericGen l
+    vcGen' iMap (Without sl')
+    
+genericGen :: MonadZ3 z3 => [Expression] -> z3 (Identifiers,[Expression])
+genericGen sl = do
+    let (sls,decls) = foldr foldAux ([],[]) sl
+    kvs <- foldr yafa (return []) decls
+    imap <- liftIO $ newTVarIO (Map.fromList kvs)
+    return (imap,sls)
+  where 
+      yafa (DeclarationStatement i val) acc = do
+          accc <- acc
+          newVar <- mkFreshIntVar i
+          return $ (i,newVar):accc
+      foldAux x@(DeclarationStatement a b) (s,d) = (s,x:d)
+      foldAux x (s,d) = (x:s,d)
+
+vcGen' :: MonadZ3 z3 => Identifiers -> SL -> z3 [AST]
+vcGen' idents (WithBoth l prec posc) = do
     x <- condition2VC idents prec
-    y <- wp l posc
-    ys <- vcAux l posc
+    y <- wp idents l posc
+    ys <- vcAux idents l posc
     res <- mkImplies x y
     return (res:ys)
-vcGen (Without l) = do
+vcGen' idents (Without l) = do
     x <- mkTrue
-    y <- wp l (Equal (Constant 0) (Constant 0))
-    ys <- vcAux l (Equal (Constant 0) (Constant 0))
+    y <- wp idents l (Equal (Constant 0) (Constant 0))
+    ys <- vcAux idents l (Equal (Constant 0) (Constant 0))
     res <- mkImplies x y
     return (res:ys) 
-vcGen (WithPre l prec) = do
+vcGen' idents (WithPre l prec) = do
     x <- condition2VC idents prec
-    y <- wp l (Equal (Constant 0) (Constant 0))
-    ys <- vcAux l (Equal (Constant 0) (Constant 0))
+    y <- wp idents l (Equal (Constant 0) (Constant 0))
+    ys <- vcAux idents l (Equal (Constant 0) (Constant 0))
     res <- mkImplies x y
     return (res:ys) 
-vcGen (WithPost l posc) = do 
+vcGen' idents (WithPost l posc) = do 
     x <- mkTrue
-    y <- wp l posc
-    ys <- vcAux l posc
+    y <- wp idents l posc
+    ys <- vcAux idents l posc
     res <- mkImplies x y
     return (res:ys)
 
 vcAux :: MonadZ3 z3 => Identifiers -> [Expression] -> Condition -> z3 [AST]
-vcAux [] c = return []
-vcAux ((AssignmentStatement _ _):[]) c = return []
-vcAux ((Conditional b ct cf):[]) c = do
-    x <- vcAux ct c
-    y <- vcAux cf c
+vcAux idents [] c = return []
+vcAux idents ((AssignmentStatement _ _):[]) c = return []
+vcAux idents ((Conditional b ct cf):[]) c = do
+    x <- vcAux idents ct c
+    y <- vcAux idents cf c
     return (x++y)
-vcAux ((Cycle b cc):[]) c = do
+vcAux idents ((Cycle b cc):[]) c = do
     inv <- mkTrue
     b' <- condition2VC idents b
     vc1esq <- mkAnd [inv,b']
-    vc1dir <- wp cc (Equal (Constant 0) (Constant 0))
+    vc1dir <- wp idents cc (Equal (Constant 0) (Constant 0))
     vc1 <- mkImplies vc1esq vc1dir 
     b'' <- condition2VC idents (Not b)
     vc2esq <- mkAnd [inv,b'']
     vc2dir <- condition2VC idents c 
     vc2 <- mkImplies vc2esq vc2dir
-    y <- vcAux cc (Equal (Constant 0) (Constant 0))
+    y <- vcAux idents cc (Equal (Constant 0) (Constant 0))
     return ([vc1,vc2]++y) 
-vcAux ((CycleInv b inv cc):[]) c = do
+vcAux idents ((CycleInv b inv cc):[]) c = do
     inv' <- condition2VC idents inv
     b' <- condition2VC idents b
     vc1esq <- mkAnd [inv',b']
-    vc1dir <- wp cc inv
+    vc1dir <- wp idents cc inv
     vc1 <- mkImplies vc1esq vc1dir 
     b'' <- condition2VC idents (Not b)
     vc2esq <- mkAnd [inv',b'']
     vc2dir <- condition2VC idents c 
     vc2 <- mkImplies vc2esq vc2dir
-    y <- vcAux cc inv
+    y <- vcAux idents cc inv
     return ([vc1,vc2]++y) 
-vcAux (l:ls) c = do
-    x <- vcAux [l] (wpcond ls c)
-    y <- vcAux ls c 
+vcAux idents (l:ls) c = do
+    x <- vcAux idents [l] (wpcond idents ls c)
+    y <- vcAux idents ls c 
     return (x++y)
 
 wp :: MonadZ3 z3 => Identifiers -> [Expression] -> Condition -> z3 AST
-wp a b = condition2VC idents $ wpcond a b
+wp idents a b = condition2VC idents $ wpcond idents a b
 
 wpcond :: Identifiers -> [Expression] -> Condition -> Condition
-wpcond [] c = c
-wpcond ((AssignmentStatement s expr):[]) c = replaceQ idents s expr c
-wpcond ((Conditional b ct cf):[]) q = And (Or (Not b) (wpcond ct q)) (Or (Not (Not b)) (wpcond cf q))
-wpcond ((Cycle b c):[]) q = Equal (Constant 0) (Constant 0)
-wpcond ((CycleInv b i c):[]) q = i
-wpcond (l:ls) q = wpcond [l] (wpcond ls q)
+wpcond idents [] c = c
+wpcond idents ((AssignmentStatement s expr):[]) c = replaceQ idents s expr c
+wpcond idents ((Conditional b ct cf):[]) q = And (Or (Not b) (wpcond idents ct q)) (Or (Not (Not b)) (wpcond idents cf q))
+wpcond idents ((Cycle b c):[]) q = Equal (Constant 0) (Constant 0)
+wpcond idents ((CycleInv b i c):[]) q = i
+wpcond idents (l:ls) q = wpcond idents [l] (wpcond idents ls q)
 
 replaceQ :: Identifiers -> String -> Expression -> Condition -> Condition
 replaceQ idents s expr (And c1 c2) = And (replaceQ idents s expr c1) (replaceQ idents s expr c2)
@@ -87,6 +119,8 @@ replaceQ idents s expr (LessThan exp1 exp2) = LessThan (replaceExp idents s expr
 replaceQ idents s expr (LessThanEqual exp1 exp2) = LessThanEqual (replaceExp idents s expr exp1) (replaceExp idents s expr exp2)
 
 replaceExp :: Identifiers -> String -> Expression -> Expression -> Expression
+replaceExp idents s expr (Constant i) = Constant i
+replaceExp idents s expr (Identifier ss) = if ss==s then expr else (Identifier ss)
 replaceExp idents s expr (Addition e1 e2) = Addition (replaceExp idents s expr e1) (replaceExp idents s expr e2)
 replaceExp idents s expr (Subtraction e1 e2) = Subtraction (replaceExp idents s expr e1) (replaceExp idents s expr e2)
 replaceExp idents s expr (Multiplication e1 e2) = Multiplication (replaceExp idents s expr e1) (replaceExp idents s expr e2)
@@ -122,7 +156,15 @@ condition2VC idents (LessThanEqual c1 c2) = do
 
 expression2VC :: MonadZ3 z3 => Identifiers -> Expression -> z3 AST
 expression2VC idents (Constant i) = mkInteger i
-expression2VC idents (Identifier s) = map 
+expression2VC idents (Identifier s) = do
+    iMap <- liftIO $ readTVarIO idents
+    case (Map.lookup s iMap) of
+        Nothing -> do
+            x <- mkFreshIntVar s
+            let newMap = Map.insert s x iMap
+            liftIO $ atomically $ writeTVar idents newMap
+            return x
+        Just x -> return x
 expression2VC idents (Addition e1 e2) = do
     x <- expression2VC idents e1
     y <- expression2VC idents e2
