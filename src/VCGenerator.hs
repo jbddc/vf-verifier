@@ -9,26 +9,35 @@ import Control.Monad.STM (atomically)
 
 type Identifiers = TVar (Map.Map String AST)
 
-vcGen :: MonadZ3 z3 => SL -> z3 [AST]
+vcGen :: MonadZ3 z3 => SL -> z3 ([AST],[AST])
 vcGen (WithBoth l prec posc) = do
-    (iMap,sl') <- genericGen l
-    vcGen' iMap (WithBoth sl' prec posc)
+    (iMap,attribs,sl') <- genericGen l
+    res <- vcGen' iMap (WithBoth sl' prec posc)
+    decls <- liftIO $ readTVarIO iMap
+    return ((Map.elems decls),attribs++res)
 vcGen (WithPre l prec) = do
-    (iMap,sl') <- genericGen l
-    vcGen' iMap (WithPre sl' prec)
+    (iMap,attribs,sl') <- genericGen l
+    res <- vcGen' iMap (WithPre sl' prec)
+    decls <- liftIO $ readTVarIO iMap
+    return ((Map.elems decls),attribs++res)
 vcGen (WithPost l posc) = do
-    (iMap,sl') <- genericGen l
-    vcGen' iMap (WithPost sl' posc)
+    (iMap,attribs,sl') <- genericGen l
+    res <- vcGen' iMap (WithPost sl' posc)
+    decls <- liftIO $ readTVarIO iMap
+    return ((Map.elems decls),attribs++res)
 vcGen (Without l) = do
-    (iMap,sl') <- genericGen l
-    vcGen' iMap (Without sl')
+    (iMap,attribs,sl') <- genericGen l
+    res <- vcGen' iMap (Without sl')
+    decls <- liftIO $ readTVarIO iMap
+    return ((Map.elems decls),attribs++res)
     
-genericGen :: MonadZ3 z3 => [Expression] -> z3 (Identifiers,[Expression])
+genericGen :: MonadZ3 z3 => [Expression] -> z3 (Identifiers,[AST],[Expression])
 genericGen sl = do
     let (sls,decls) = foldr foldAux ([],[]) sl
     kvs <- foldr yafa (return []) decls
     imap <- liftIO $ newTVarIO (Map.fromList kvs)
-    return (imap,sls)
+    attribs <- mapM (\((DeclarationStatement _ val),ast) -> do { _val <- expression2VC imap val ;mkEq ast _val} ) $ zip decls (map snd kvs)
+    return (imap,attribs,sls)
   where 
       yafa (DeclarationStatement i val) acc = do
           accc <- acc
@@ -162,11 +171,7 @@ expression2VC idents (Constant i) = mkInteger i
 expression2VC idents (Identifier s) = do
     iMap <- liftIO $ readTVarIO idents
     case (Map.lookup s iMap) of
-        Nothing -> do
-            x <- mkFreshIntVar s
-            let newMap = Map.insert s x iMap
-            liftIO $ atomically $ writeTVar idents newMap
-            return x
+        Nothing -> error $ "Variable \'"++s++"\' not declared."
         Just x -> return x
 expression2VC idents (Addition e1 e2) = do
     x <- expression2VC idents e1
