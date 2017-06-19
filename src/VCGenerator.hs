@@ -171,7 +171,11 @@ expression2VC idents (Constant i) = mkInteger i
 expression2VC idents (Identifier s) = do
     iMap <- liftIO $ readTVarIO idents
     case (Map.lookup s iMap) of
-        Nothing -> error $ "Variable \'"++s++"\' not declared."
+        Nothing -> do
+            x <- mkFreshIntVar s
+            let newMap = Map.insert s x iMap
+            liftIO $ atomically $ writeTVar idents newMap
+            return x
         Just x -> return x
 expression2VC idents (Addition e1 e2) = do
     x <- expression2VC idents e1

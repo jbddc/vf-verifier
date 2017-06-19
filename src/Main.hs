@@ -11,5 +11,16 @@ main = do
     let res = parse parseSL "" input
     either
       print
-      (\x -> (\(w,res) -> mapM_ print res >> mapM_ putStrLn w) =<< evalZ3 (do { (decls,vcs) <- vcGen x ; w <- mapM astToString vcs ; {-mapM_ assert decls;-} res <- mapM (\k -> solverAssertCnstr k >> solverCheck) vcs; return (w,res) }))
+      (\x -> do
+        (w,res) <- evalZ3 (script x)
+        mapM_ (\(num,(a,b)) -> putStrLn ("VC "++(show num)++": ") >> putStrLn b >> putStr "Result: " >> print a >> putStrLn "") $ zip [1..] $ zip res w
+      )
       res
+
+
+script :: SL -> Z3 ([String],[Result])
+script x = do 
+  (decls,vcs) <- vcGen x 
+  w <- mapM astToString vcs 
+  res <- mapM (\k -> solverAssertCnstr k >> solverCheck) vcs
+  return (w,res)

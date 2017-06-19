@@ -1,6 +1,4 @@
-pre x > 0 
-
-int x = 3;
+pre x < 20 
 
 while (x < 50) {
     [ x > 200]
