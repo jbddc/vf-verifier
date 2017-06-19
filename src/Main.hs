@@ -22,5 +22,5 @@ script :: SL -> Z3 ([String],[Result])
 script x = do 
   (decls,vcs) <- vcGen x 
   w <- mapM astToString vcs 
-  res <- mapM (\k -> solverAssertCnstr k >> solverCheck) vcs
+  res <- mapM (\k -> reset >> assert k >> check) vcs
   return (w,res)
