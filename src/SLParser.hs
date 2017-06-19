@@ -147,7 +147,7 @@ parseAssignment = do
   return $ AssignmentStatement ident expr
 
 parseCommand :: Parser Expression
-parseCommand = parseThrow <|> parseAssignment <|> parseConditional <|> parseCycle
+parseCommand = parseThrow <|> parseAssignment <|> parseConditional <|> parseCycle <|> parseTryCatch
 
 parseThrow :: Parser Expression
 parseThrow = try $ do

@@ -103,6 +103,7 @@ vcAux idents ((CycleInv b inv cc):[]) c = do
     vc2 <- mkImplies vc2esq vc2dir
     y <- vcAux idents cc inv
     return ([vc1,vc2]++y) 
+vcAux idents (_:[]) _ = error "Not Implemented."
 vcAux idents (l:ls) c = do
     x <- vcAux idents [l] (wpcond idents ls c)
     y <- vcAux idents ls c 
@@ -117,6 +118,7 @@ wpcond idents ((AssignmentStatement s expr):[]) c = replaceQ idents s expr c
 wpcond idents ((Conditional b ct cf):[]) q = And (Or (Not b) (wpcond idents ct q)) (Or (Not (Not b)) (wpcond idents cf q))
 wpcond idents ((Cycle b c):[]) q = Boolean True 
 wpcond idents ((CycleInv b i c):[]) q = i
+wpcond idents (_:[]) q = error "Not implemented."
 wpcond idents (l:ls) q = wpcond idents [l] (wpcond idents ls q)
 
 replaceQ :: Identifiers -> String -> Expression -> Condition -> Condition
@@ -141,6 +143,7 @@ replaceExp idents s expr (AssignmentStatement ss ex) = if ss==s then AssignmentS
 replaceExp idents s expr (Cycle c ex) = Cycle (replaceQ idents s expr c) (map (\x -> (replaceExp idents s expr x)) ex)
 replaceExp idents s expr (CycleInv c1 c2 ex) = CycleInv (replaceQ idents s expr c1) (replaceQ idents s expr c2) (map (\x -> (replaceExp idents s expr x)) ex)
 replaceExp idents s expr (Conditional c ex1 ex2) = Conditional (replaceQ idents s expr c) (map (\x -> (replaceExp idents s expr x)) ex1) (map (\x -> (replaceExp idents s expr x)) ex2)
+replaceExp idents s expr _ = error "Not implemented."
 
 condition2VC :: MonadZ3 z3 => Identifiers -> Condition -> z3 AST
 condition2VC idents (And c1 c2) = do
@@ -203,3 +206,4 @@ expression2VC idents (Modulus e1 e2) = do
 expression2VC idents (Negation e) = do
     x <- expression2VC idents e
     mkUnaryMinus x
+expression2VC idents Throw = error "Throw not implemented."

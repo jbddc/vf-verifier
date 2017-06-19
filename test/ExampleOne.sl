@@ -10,7 +10,7 @@ r = x ;
 q = 0 ;
 
 try {
-    if (y = 0) throw;
+    if (y == 0) then {throw;}
 
     r = x ;
     q = 0 ;
@@ -24,5 +24,5 @@ try {
     r = 0;
 }
 
-postn y = 0 && q = 1000 && r = 0
+postn y == 0 && q == 1000 && r == 0
 poste false
