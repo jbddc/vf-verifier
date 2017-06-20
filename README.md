@@ -3,6 +3,11 @@ Practical Assignment - Formal Verification 2016/17
 
 Documentation for the source code can be found [here](https://jbdc.github.io/).
 
+## Dependencies
+
+- [Haskell Stack Tool](https://docs.haskellstack.org/en/stable/README/)
+- [Z3 Prover](https://github.com/Z3Prover/z3)
+
 ## Build
 
 - Clone this repository
