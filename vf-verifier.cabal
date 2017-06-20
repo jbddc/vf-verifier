@@ -11,7 +11,7 @@ license-file:        LICENSE
 author:              João Costa <a70430@alunos.uminho.pt>
                      Rafael Barbosa <a71580@alunos.uminho.pt>
 maintainer:          a70430@alunos.uminho.pt
-copyright:           2017-2018, Joao Costa, Rafael Barbosa
+copyright:           2016-2017, Joao Costa, Rafael Barbosa
 category:            Parser, SMT, Theorem Provers, Formal Methods
 build-type:          Simple
 cabal-version:       >=1.10
