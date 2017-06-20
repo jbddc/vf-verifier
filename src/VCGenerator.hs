@@ -1,4 +1,4 @@
-module VCGenerator (vcGen) where
+module VCGenerator where
 
 import SLParser
 import Z3.Monad
@@ -7,9 +7,13 @@ import Control.Concurrent.STM.TVar
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.STM (atomically)
 
+-- | Data structure that keeps track of variables' AST nodes.
 type Identifiers = TVar (Map.Map String AST)
 
-vcGen :: MonadZ3 z3 => SL -> z3 ([AST],[AST])
+-- | Function that generates VCs from SL annotations with an AST traversal.
+vcGen :: MonadZ3 z3 
+         => SL               -- ^ AST that resulted from Parse
+         -> z3 ([AST],[AST]) -- ^ Declarations and Assertions resulting from annotation parse, in Z3 compatible format (Also SMT-Lib compatible)
 vcGen (WithBoth l prec posc pose) = do
     (iMap,attribs,sl') <- genericGen l
     res <- vcGen' iMap (WithBoth sl' prec posc pose)
@@ -31,7 +35,10 @@ vcGen (Without l) = do
     decls <- liftIO $ readTVarIO iMap
     return ((Map.elems decls),attribs++res)
     
-genericGen :: MonadZ3 z3 => [Expression] -> z3 (Identifiers,[AST],[Expression])
+-- | vcGen helper function that parses inner expressions and returns categorized structures.
+genericGen :: MonadZ3 z3 
+           => [Expression] -- ^ List of expressions to be parsed
+           -> z3 (Identifiers,[AST],[Expression]) -- ^ Tuple with `Identifiers` data structure, list of var attributions in Z3 compatible format and expressions to be parsed for VCs
 genericGen sl = do
     let (sls,decls) = foldr foldAux ([],[]) sl
     kvs <- foldr yafa (return []) decls
@@ -46,7 +53,11 @@ genericGen sl = do
       foldAux x@(DeclarationStatement a b) (s,d) = (s,x:d)
       foldAux x (s,d) = (x:s,d)
 
-vcGen' :: MonadZ3 z3 => Identifiers -> SL -> z3 [AST]
+-- | vcGen helper function that parses SL to generate VCs.
+vcGen' :: MonadZ3 z3 
+       => Identifiers -- ^ Data structure with declared variables in SMT-Lib/Z3 format 
+       -> SL          -- ^ SL AST tree to be parsed
+       -> z3 [AST]    -- ^ Resulting VCs in SMT-Lib/Z3 format
 vcGen' idents (WithBoth l prec posc _) = do
     x <- condition2VC idents prec
     y <- wp idents l posc
@@ -72,7 +83,12 @@ vcGen' idents (WithPost l posc _) = do
     res <- mkImplies x y
     return (res:ys)
 
-vcAux :: MonadZ3 z3 => Identifiers -> [Expression] -> Condition -> z3 [AST]
+-- | `vcGen` helper function.
+vcAux :: MonadZ3 z3 
+      => Identifiers  -- ^ Auxiliary data structure that keeps track of variable declarations
+      -> [Expression] -- ^ List of Expressions to parse
+      -> Condition    -- ^ Q condition
+      -> z3 [AST]     -- ^ resulting list of VCs
 vcAux idents [] c = return []
 vcAux idents ((AssignmentStatement _ _):[]) c = return []
 vcAux idents ((Conditional b ct cf):[]) c = do
@@ -109,10 +125,19 @@ vcAux idents (l:ls) c = do
     y <- vcAux idents ls c 
     return (x++y)
 
-wp :: MonadZ3 z3 => Identifiers -> [Expression] -> Condition -> z3 AST
+-- | VCGen inner function that resembles one in the subject's slides with the same name.
+wp :: MonadZ3 z3 
+   => Identifiers   -- ^ Auxiliary data structure that keeps track of variable declarations 
+   -> [Expression]  -- ^ List of expressions to be parsed
+   -> Condition     -- ^ Q condition
+   -> z3 AST        -- ^ resulting VC
 wp idents a b = condition2VC idents $ wpcond idents a b
 
-wpcond :: Identifiers -> [Expression] -> Condition -> Condition
+-- | `wp` inner function that is responsible for the logic of the WP function, as described in the subject's slides. 
+wpcond :: Identifiers  -- ^ Auxiliary data structure that keeps track of variable declarations 
+       -> [Expression] -- ^ Expressions to be parsed 
+       -> Condition    -- ^ Q Condition
+       -> Condition    -- ^ Resulting Condition
 wpcond idents [] c = c
 wpcond idents ((AssignmentStatement s expr):[]) c = replaceQ idents s expr c
 wpcond idents ((Conditional b ct cf):[]) q = And (Or (Not b) (wpcond idents ct q)) (Or (Not (Not b)) (wpcond idents cf q))
@@ -121,7 +146,12 @@ wpcond idents ((CycleInv b i c):[]) q = i
 wpcond idents (_:[]) q = error "Not implemented."
 wpcond idents (l:ls) q = wpcond idents [l] (wpcond idents ls q)
 
-replaceQ :: Identifiers -> String -> Expression -> Condition -> Condition
+-- | Function responsible for Q[x->e] action as described in `wp` definition
+replaceQ :: Identifiers -- ^ Auxiliary data structure that keeps track of variable declarations
+         -> String      -- ^ Variable x to be replaced
+         -> Expression  -- ^ Value e to replace on x
+         -> Condition   -- ^ Q
+         -> Condition   -- ^ Resulting Q
 replaceQ idents s expr (And c1 c2) = And (replaceQ idents s expr c1) (replaceQ idents s expr c2)
 replaceQ idents s expr (Or c1 c2)  = Or (replaceQ idents s expr c1) (replaceQ idents s expr c2)
 replaceQ idents s expr (Not c)     = Not (replaceQ idents s expr c)
@@ -130,7 +160,12 @@ replaceQ idents s expr (LessThan exp1 exp2) = LessThan (replaceExp idents s expr
 replaceQ idents s expr (LessThanEqual exp1 exp2) = LessThanEqual (replaceExp idents s expr exp1) (replaceExp idents s expr exp2)
 replaceQ idents s expr (Boolean b) = Boolean b
 
-replaceExp :: Identifiers -> String -> Expression -> Expression -> Expression
+-- | `replaceQ` helper function that does Q[x->e] action on SL Expressions
+replaceExp :: Identifiers -- ^ Auxiliary data structure that keeps track of variable declarations
+           -> String      -- ^ Variable x to be replaced
+           -> Expression  -- ^ Value e to replace on x
+           -> Expression  -- ^ Q
+           -> Expression  -- ^ Resulting Q
 replaceExp idents s expr (Constant i) = Constant i
 replaceExp idents s expr (Identifier ss) = if ss==s then expr else (Identifier ss)
 replaceExp idents s expr (Addition e1 e2) = Addition (replaceExp idents s expr e1) (replaceExp idents s expr e2)
@@ -145,7 +180,11 @@ replaceExp idents s expr (CycleInv c1 c2 ex) = CycleInv (replaceQ idents s expr 
 replaceExp idents s expr (Conditional c ex1 ex2) = Conditional (replaceQ idents s expr c) (map (\x -> (replaceExp idents s expr x)) ex1) (map (\x -> (replaceExp idents s expr x)) ex2)
 replaceExp idents s expr _ = error "Not implemented."
 
-condition2VC :: MonadZ3 z3 => Identifiers -> Condition -> z3 AST
+-- | Function that converts SL Condition to SMT-Lib/Z3 compatible AST node.
+condition2VC :: MonadZ3 z3 
+             => Identifiers  -- ^ Auxiliary data structure that keeps track of variable declarations
+             -> Condition    -- ^ SL Condition to be parsed
+             -> z3 AST       -- ^ Resulting node
 condition2VC idents (And c1 c2) = do
     x <- condition2VC idents c1
     y <- condition2VC idents c2
@@ -172,7 +211,11 @@ condition2VC idents (LessThanEqual c1 c2) = do
 condition2VC idents (Boolean True) = mkTrue
 condition2VC idents (Boolean False) = mkFalse
 
-expression2VC :: MonadZ3 z3 => Identifiers -> Expression -> z3 AST
+-- | Function that converts SL Expression to SMT-Lib/Z3 compatible AST node.
+expression2VC :: MonadZ3 z3 
+              => Identifiers -- ^ Auxiliary data structure that keeps track of variable declarations 
+              -> Expression  -- ^ SL Expression to be parsed
+              -> z3 AST      -- ^ Resulting node
 expression2VC idents (Constant i) = mkInteger i
 expression2VC idents (Identifier s) = do
     iMap <- liftIO $ readTVarIO idents
